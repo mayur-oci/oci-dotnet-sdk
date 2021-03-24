@@ -1,8 +1,34 @@
-/*
- * Copyright (c) 2020, 2021, Oracle and/or its affiliates. All rights reserved.
- * This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
- */
 
+
+# Quickstart with OCI .NET SDK for OSS
+
+This quickstart shows how to produce messages to and consume messages from an [**Oracle Streaming Service**](https://docs.oracle.com/en-us/iaas/Content/Streaming/Concepts/streamingoverview.htm) using the [OCI .NET SDK](https://github.com/oracle/oci-dotnet-sdk). We are going to use C# language for these examples. 
+
+## Prerequisites
+
+1. You need have OCI account subscription or free account. typical links @jb
+2. Follow [these steps](https://github.com/mayur-oci/OssJs/blob/main/JavaScript/CreateStream.md) to create Streampool and Stream in OCI. If you do  already have stream created, refer step 3 [here](https://github.com/mayur-oci/OssJs/blob/main/JavaScript/CreateStream.md) to capture/record message endpoint and OCID of the stream. We need this Information for upcoming steps.
+3. The  [.NET 5.0 SDK or later](https://dotnet.microsoft.com/download). Make sure *dotnet* is in your *PATH* environment variable.
+5. VS code(recommended) with with the [C# extension](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csharp) installed. For information about how to install extensions on Visual Studio Code, see [VS Code Extension Marketplace](https://code.visualstudio.com/docs/editor/extension-gallery). In this tutorial we create and run a simple .NET console application by using Visual Studio Code and the .NET CLI,  as quick demonstration of how to use OCI .NET SDK for OSS. Project tasks, such as creating, compiling, and running a project are done by using the .NET CLI. You can follow this tutorial with a different IDE and run commands in a terminal if you prefer. 
+6. Make sure you have [SDK and CLI Configuration File](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdkconfig.htm#SDK_and_CLI_Configuration_File) setup. For production, you should use [Instance Principle Authentication](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/callingservicesfrominstances.htm).
+
+## Producing messages to OSS
+1. Open your favorite editor, such as [Visual Studio Code](https://code.visualstudio.com) from the empty working directory *wd*. 
+2. Open the terminal and *cd* into *wd* directory. 
+3. Create C# .NET console application by running the following command on the terminal
+```Shell
+  $:/path/to/wd/directory>dotnet new console
+    The template "Console Application" was created successfully.
+```
+This will create Program.cs file with C# code for simple HellowWorld application.
+
+4. Add OCI SDK packages for basic IAM authentication and OSS to your C# project as follows.
+```Shell
+  $:/path/to/wd/directory>dotnet add package OCI.DotNetSDK.Common
+  $:/path/to/wd/directory>dotnet add package OCI.DotNetSDK.Streaming
+``` 
+6. Replace the code in *Program.cs* in directory *wd* with following code after you replace values of variables *configurationFilePath, profile ,ociStreamOcid and ociMessageEndpoint* in the follwing code snippet with values applicable for your tenancy. 
+```C#
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -14,182 +40,153 @@ using Oci.StreamingService.Models;
 using Oci.StreamingService.Requests;
 using Oci.StreamingService.Responses;
 
-namespace Oci.Examples
+namespace OssProducer
 {
-    /**
-    * This class provides an example of basic streaming usage.
-    * - List streams
-    * - Get a stream
-    * - Create a stream
-    * - Delete a stream
-    * - Publish to a stream
-    * - Consume from a stream, using a partition cursor
-    * - Consume from a stream, using a group cursor
-    */
-
-    public class StreamsExample
+    class Program
     {
-        private static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
-        private static string STREAM_NAME = "dotnet-sdk-stream-example";
-        private static int PARTITIONS = 1;
-
-        public static async Task MainStreaming()
+        public static async Task Main(string[] args)
         {
-            logger.Info("Starting example");
+            Console.WriteLine("Starting example for OSS Producer");
+            string configurationFilePath = "C:\\.oci\\config";
+            string profile = "DEFAULT";
+            string ociStreamOcid = "ocid1.stream.oc1.ap-mumbai-1.amaaaaaauwpiejqaxcfc2ht67wwohfg7mxcstfkh2kp3hweeenb3zxtr5khq";
+            string ociMessageEndpoint = "https://cell-1.streaming.ap-mumbai-1.oci.oraclecloud.com";
 
-            var provider = new ConfigFileAuthenticationDetailsProvider("DEFAULT");
-            string compartmentId = Environment.GetEnvironmentVariable("OCI_COMPARTMENT_ID");
+           try{
+                var provider = new ConfigFileAuthenticationDetailsProvider(configurationFilePath, profile);
+                
+                StreamClient streamClient = new StreamClient(provider);
+                streamClient.SetEndpoint(ociMessageEndpoint);
 
-            StreamAdminClient streamAdminClient = new StreamAdminClient(provider);
-            StreamClient streamClient = new StreamClient(provider);
-            string streamId = null;
-
-            try
+                await PublishExampleMessages(streamClient, ociStreamOcid);
+           }
+           catch (Exception e)
             {
-                Stream stream = await GetOrCreateStream(streamAdminClient, compartmentId, STREAM_NAME, PARTITIONS);
-                streamId = stream.Id;
+                Console.WriteLine($"Streaming example failed: {e}");
+            }
+        }
 
-                // Streams are assigned a specific endpoint url based on where they are provisioned.
-                // Create a stream client using the provided message endpoint.
-                streamClient.SetEndpoint(stream.MessagesEndpoint);
+        private static async Task PublishExampleMessages(StreamClient streamClient, string streamId)
+        {
+            // build up a putRequest and publish some messages to the stream
+            List<PutMessagesDetailsEntry> messages = new List<PutMessagesDetailsEntry>();
+            for (int i = 0; i < 100; i++)
+            {
+                PutMessagesDetailsEntry detailsEntry = new PutMessagesDetailsEntry
+                {
+                    Key = Encoding.UTF8.GetBytes($"messagekey-{i}"),
+                    Value = Encoding.UTF8.GetBytes($"messageValue-{i}")
+                };
+                messages.Add(detailsEntry);
+            }
 
-                // publish some messages to the stream
-                await PublishExampleMessages(streamClient, streamId);
+            Console.WriteLine($"Publishing {messages.Count} messages to stream {streamId}");
+            PutMessagesDetails messagesDetails = new PutMessagesDetails
+            {
+                Messages = messages
+            };
+            PutMessagesRequest putRequest = new PutMessagesRequest
+            {
+                StreamId = streamId,
+                PutMessagesDetails = messagesDetails
+            };
+            PutMessagesResponse putResponse = await streamClient.PutMessages(putRequest);
 
-                // give the streaming service a second to propagate messages
-                await Task.Delay(1000);
+            // the putResponse can contain some useful metadata for handling failures
+            foreach (PutMessagesResultEntry entry in putResponse.PutMessagesResult.Entries)
+            {
+                if (entry.Error != null)
+                {
+                    Console.WriteLine($"Error({entry.Error}): {entry.ErrorMessage}");
+                }
+                else
+                {
+                    Console.WriteLine($"Published message to partition {entry.Partition}, offset {entry.Offset}");
+                }
+            }
+        }
+    }
+}
 
-                // Use a cursor for getting messages; each getMessages call will return a next-cursor for iteration.
-                // There are a couple kinds of cursors.
+```
+3.   Run the code on the terminal(from the same directory *wd*) follows 
+```Shell
+  $:/path/to/wd/directory>dotnet run
+```
+This will put messages in your OSS stream.
+4. In the OCI Web Console, quickly go to your Stream Page and click on *Load Messages* button. You should see the messages we just produced as below.
+![See Produced Messages in OCI Wb Console](https://github.com/mayur-oci/OssJs/blob/main/JavaScript/StreamExampleLoadMessages.png?raw=true)
 
-                // A cursor can be created at a given partition/offset.
-                // This gives explicit offset management control to the consumer.
-                logger.Info("Starting a simple message loop with a partition cursor");
-                string partitionCursor = await GetCursorByPartition(streamClient, streamId, "0");
-                await SimpleMessageLoop(streamClient, streamId, partitionCursor);
+  
+## Consuming messages from OSS
+1. First produce messages to the stream you want to consumer message from unless you already have messages in the stream. You can produce message easily from *OCI Web Console* using simple *Produce Test Message* button as shown below
+![Produce Test Message Button](https://github.com/mayur-oci/OssJs/blob/main/JavaScript/ProduceButton.png?raw=true)
+ 
+ You can produce multiple test messages by clicking *Produce* button back to back, as shown below
+![Produce multiple test message by clicking Produce button](https://github.com/mayur-oci/OssJs/blob/main/JavaScript/ActualProduceMessagePopUp.png?raw=true)
+
+
+2. Open your favorite editor, such as [Visual Studio Code](https://code.visualstudio.com) from the empty working directory *wd*. 
+3. Open the terminal and *cd* into *wd* directory. 
+4. Create C# .NET console application by running the following command on the terminal
+```Shell
+  $:/path/to/wd/directory>dotnet new console
+    The template "Console Application" was created successfully.
+```
+This will create Program.cs file with C# code for simple HellowWorld application.
+
+4. Add OCI SDK packages for basic IAM authentication and OSS to your C# project as follows.
+```Shell
+  $:/path/to/wd/directory>dotnet add package OCI.DotNetSDK.Common
+  $:/path/to/wd/directory>dotnet add package OCI.DotNetSDK.Streaming
+``` 
+6. Replace the code in *Program.cs* in directory *wd* with following code after you replace values of variables *configurationFilePath, profile ,ociStreamOcid and ociMessageEndpoint* in the follwing code snippet with values applicable for your tenancy. 
+```C#
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading.Tasks;
+using Oci.Common.Auth;
+using Oci.Common.Waiters;
+using Oci.StreamingService;
+using Oci.StreamingService.Models;
+using Oci.StreamingService.Requests;
+using Oci.StreamingService.Responses;
+
+namespace OssProducer
+{
+    class Program
+    {
+        public static async Task Main(string[] args)
+        {
+            Console.WriteLine("Starting example for OSS Producer");
+            string configurationFilePath = "C:\\.oci\\config";
+            string profile = "DEFAULT";
+            string ociStreamOcid = "ocid1.stream.oc1.ap-mumbai-1.amaaaaaauwpiejqaxcfc2ht67wwohfg7mxcstfkh2kp3hweeenb3zxtr5khq";
+            string ociMessageEndpoint = "https://cell-1.streaming.ap-mumbai-1.oci.oraclecloud.com";
+
+           try{
+                var provider = new ConfigFileAuthenticationDetailsProvider(configurationFilePath, profile);
+                
+                StreamClient streamClient = new StreamClient(provider);
+                streamClient.SetEndpoint(ociMessageEndpoint);
 
                 // A cursor can be created as part of a consumer group.
                 // Committed offsets are managed for the group, and partitions
                 // are dynamically balanced amongst consumers in the group.
-                logger.Info("Starting a simple message loop with a group cursor");
-                string groupCursor = await GetCursorByGroup(streamClient, streamId, "exampleGroup", "exampleInstance-1");
-                await SimpleMessageLoop(streamClient, streamId, groupCursor);
+                Console.WriteLine("Starting a simple message loop with a group cursor");
+                string groupCursor = await GetCursorByGroup(streamClient, ociStreamOcid, "exampleGroup", "exampleInstance-1");
+                await SimpleMessageLoop(streamClient, ociStreamOcid, groupCursor);
+           }
+           catch (Exception e)
+            {
+                Console.WriteLine($"Streaming example failed: {e}");
             }
-            catch (Exception e)
-            {
-                logger.Error($"Streaming example failed: {e}");
-            }
-            finally
-            {
-                // Cleanup; remember to delete streams which are not in use.
-                await DeleteStream(streamAdminClient, streamId);
-
-                // Stream deletion is an asynchronous operation, give it some time to complete.
-                GetStreamRequest getStreamRequest = new GetStreamRequest
-                {
-                    StreamId = streamId
-                };
-                streamAdminClient.Waiters.ForStream(getStreamRequest, Stream.LifecycleStateEnum.Deleted).Execute();
-
-                streamAdminClient.Dispose();
-
-                logger.Info("End example");
-            }
-        }
-
-        private static async Task<Stream> GetOrCreateStream(StreamAdminClient client, string compartmentId, string streamName, int partitions)
-        {
-
-            ListStreamsRequest listRequest = new ListStreamsRequest
-            {
-                CompartmentId = compartmentId,
-                LifecycleState = Stream.LifecycleStateEnum.Active,
-                Name = streamName
-            };
-            ListStreamsResponse listStreamsResponse = await client.ListStreams(listRequest);
-
-            if (listStreamsResponse.Items.Count != 0)
-            {
-                // if we find an active stream with the correct name, we'll use it.
-                logger.Info($"An active stream named {streamName} was found");
-
-                string streamId = listStreamsResponse.Items[0].Id;
-                return await GetStream(client, streamId);
-            }
-
-            logger.Info($"No active stream named {streamName} was found; creating it now");
-            Stream createdStream = await CreateStream(client, compartmentId, streamName, partitions);
-
-            // GetStream provides details about a specific stream.
-            // Since stream creation is asynchronous; we need to wait for the stream to become active.
-            WaiterConfiguration waiterConfiguration = new WaiterConfiguration
-            {
-                MaxAttempts = 20,
-                GetNextDelayInSeconds = DelayStrategy.GetExponentialDelayInSeconds
-            };
-            GetStreamRequest streamRequest = new GetStreamRequest
-            {
-                StreamId = createdStream.Id
-            };
-            Stream activeStream = client.Waiters.ForStream(streamRequest, waiterConfiguration, Stream.LifecycleStateEnum.Active).Execute().Stream;
-
-            // Give a little time for the stream to be ready.
-            await Task.Delay(1000);
-            return activeStream;
-        }
-
-        private static async Task<Stream> GetStream(StreamAdminClient adminClient, string streamId)
-        {
-            GetStreamRequest getStreamRequest = new GetStreamRequest
-            {
-                StreamId = streamId
-            };
-            GetStreamResponse getStreamResponse = await adminClient.GetStream(getStreamRequest);
-
-            return getStreamResponse.Stream;
-        }
-
-        private static async Task<Stream> CreateStream(StreamAdminClient client, string compartmentId, string streamName, int partitions)
-        {
-            logger.Info($"Creating stream {streamName} with {partitions} partitions");
-
-            CreateStreamDetails createStreamDetails = new CreateStreamDetails
-            {
-                CompartmentId = compartmentId,
-                Name = streamName,
-                Partitions = partitions
-            };
-            CreateStreamRequest createStreamRequest = new CreateStreamRequest
-            {
-                CreateStreamDetails = createStreamDetails
-            };
-            CreateStreamResponse createStreamResponse = await client.CreateStream(createStreamRequest);
-
-            return createStreamResponse.Stream;
-        }
-
-        private static async Task<string> GetCursorByPartition(StreamClient streamClient, string streamId, string partition)
-        {
-            logger.Info($"Creating a cursor for partition {partition}");
-
-            CreateCursorDetails createCursorDetails = new CreateCursorDetails
-            {
-                Partition = partition,
-                Type = CreateCursorDetails.TypeEnum.TrimHorizon
-            };
-            CreateCursorRequest createCursorRequest = new CreateCursorRequest
-            {
-                StreamId = streamId,
-                CreateCursorDetails = createCursorDetails
-            };
-            CreateCursorResponse createCursorResponse = await streamClient.CreateCursor(createCursorRequest);
-
-            return createCursorResponse.Cursor.Value;
         }
 
         private static async Task<string> GetCursorByGroup(StreamClient streamClient, string streamId, string groupName, string instanceName)
         {
-            logger.Info($"Creating a cursor for group {groupName}, instance {instanceName}");
+            Console.WriteLine($"Creating a cursor for group {groupName}, instance {instanceName}");
 
             CreateGroupCursorDetails createGroupCursorDetails = new CreateGroupCursorDetails
             {
@@ -207,47 +204,6 @@ namespace Oci.Examples
 
             return groupCursorResponse.Cursor.Value;
         }
-
-        private static async Task PublishExampleMessages(StreamClient streamClient, string streamId)
-        {
-            // build up a putRequest and publish some messages to the stream
-            List<PutMessagesDetailsEntry> messages = new List<PutMessagesDetailsEntry>();
-            for (int i = 0; i < 100; i++)
-            {
-                PutMessagesDetailsEntry detailsEntry = new PutMessagesDetailsEntry
-                {
-                    Key = Encoding.UTF8.GetBytes($"messagekey-{i}"),
-                    Value = Encoding.UTF8.GetBytes($"messageValue-{i}")
-                };
-                messages.Add(detailsEntry);
-            }
-
-            logger.Info($"Publishing {messages.Count} messages to stream {streamId}");
-            PutMessagesDetails messagesDetails = new PutMessagesDetails
-            {
-                Messages = messages
-            };
-            PutMessagesRequest putRequest = new PutMessagesRequest
-            {
-                StreamId = streamId,
-                PutMessagesDetails = messagesDetails
-            };
-            PutMessagesResponse putResponse = await streamClient.PutMessages(putRequest);
-
-            // the putResponse can contain some useful metadata for handling failures
-            foreach (PutMessagesResultEntry entry in putResponse.PutMessagesResult.Entries)
-            {
-                if (entry.Error != null)
-                {
-                    logger.Info($"Error({entry.Error}): {entry.ErrorMessage}");
-                }
-                else
-                {
-                    logger.Info($"Published message to partition {entry.Partition}, offset {entry.Offset}");
-                }
-            }
-        }
-
         private static async Task SimpleMessageLoop(StreamClient streamClient, string streamId, string initialCursor)
         {
             string cursor = initialCursor;
@@ -263,10 +219,11 @@ namespace Oci.Examples
                 GetMessagesResponse getResponse = await streamClient.GetMessages(getMessagesRequest);
 
                 // process the messages
-                logger.Info($"Read {getResponse.Items.Count}");
+                Console.WriteLine($"Read {getResponse.Items.Count}");
                 foreach (Message message in getResponse.Items)
                 {
-                    logger.Info($"{Encoding.UTF8.GetString(message.Key)} : {Encoding.UTF8.GetString(message.Value)}");
+                    string key = message.Key != null ? Encoding.UTF8.GetString(message.Key) : "Null";     
+                    Console.WriteLine($"{key} : {Encoding.UTF8.GetString(message.Value)}");
                 }
 
                 // getMessages is a throttled method; clients should retrieve sufficiently large message
@@ -277,26 +234,37 @@ namespace Oci.Examples
                 cursor = getResponse.OpcNextCursor;
             }
         }
-
-        private static async Task DeleteStream(StreamAdminClient adminClient, String streamId)
-        {
-            logger.Info($"Deleting stream {streamId}");
-            DeleteStreamRequest deleteStreamRequest = new DeleteStreamRequest
-            {
-                StreamId = streamId
-            };
-            await adminClient.DeleteStream(deleteStreamRequest);
-
-            WaiterConfiguration waiterConfiguration = new WaiterConfiguration
-            {
-                MaxAttempts = 20,
-                GetNextDelayInSeconds = DelayStrategy.GetExponentialDelayInSeconds
-            };
-            GetStreamRequest getStreamRequest = new GetStreamRequest
-            {
-                StreamId = streamId
-            };
-            adminClient.Waiters.ForStream(getStreamRequest, waiterConfiguration, Stream.LifecycleStateEnum.Deleted).Execute();
-        }
     }
 }
+
+```
+4. Run the code on the terminal(from the same directory *wd*) follows 
+  Run the code on the terminal(from the same directory *wd*) follows 
+```Shell
+  $:/path/to/wd/directory>dotnet run
+```
+5. You should see the messages similar to shown below. Note when we produce message from OCI Web Console(as described above in first step), the Key for each message is *Null*
+```
+$:/path/to/wd/directory>dotnet run
+ [INFO related maven compiling and building the Java code]
+Starting a simple message loop with a group cursor
+Creating a cursor for group exampleGroup, instance exampleInstance-1.
+Read 25 messages.
+Null: Example Test Message 0
+Null: Example Test Message 0
+ Read 2 messages
+Null: Example Test Message 0
+Null: Example Test Message 0
+ Read 1 messages
+Null: Example Test Message 0
+ Read 10 messages
+key 0: value 0
+key 1: value 1
+
+```
+
+## Next Steps
+Please refer to
+
+ 1. [Github for OCI .NET SDK](https://github.com/oracle/oci-dotnet-sdk)
+ 2. [Streaming Examples with Admin and Client APIs from OCI](https://github.com/oracle/oci-dotnet-sdk/blob/master/Examples/StreamingExample.cs)
